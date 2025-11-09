@@ -3,14 +3,17 @@ service: api-comentario
 
 provider:
   name: aws
-  runtime: python3.13	
-  # Default memory size for functions (default: 1024MB)
+  runtime: python3.13
   memorySize: 1024
   timeout: 20
   iam:
-    role: arn:aws:iam::468251834706:role/LabRole	
+    role: arn:aws:iam::468251834706:role/LabRole
   environment:
     TABLE_NAME: ${sls:stage}-t_comentarios
+    INGEST_BUCKET: ${self:custom.ingestBucketName}
+
+custom:
+  ingestBucketName: ${sls:stage}-comentarios-bucket-evs01-${aws:accountId}-${aws:region}
 
 functions:
   crear:
@@ -38,5 +41,49 @@ resources:
             KeyType: HASH
           - AttributeName: uuid
             KeyType: RANGE
-        # Set the capacity to auto-scale
         BillingMode: PAY_PER_REQUEST
+
+    S3BucketComentarios:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.ingestBucketName}
+        AccessControl: Private
+        VersioningConfiguration:
+          Status: Enabled
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: AES256
+        LifecycleConfiguration:
+          Rules:
+            - Id: CleanOldVersions
+              Status: Enabled
+              NoncurrentVersionExpiration:
+                NoncurrentDays: 90
+
+    S3BucketComentariosPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref S3BucketComentarios
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Sid: DenyInsecureTransport
+              Effect: Deny
+              Principal: "*"
+              Action: "s3:*"
+              Resource:
+                - arn:aws:s3:::${self:custom.ingestBucketName}
+                - arn:aws:s3:::${self:custom.ingestBucketName}/*
+              Condition:
+                Bool:
+                  aws:SecureTransport: "false"
+
+  Outputs:
+    IngestBucketName:
+      Value: ${self:custom.ingestBucketName}
